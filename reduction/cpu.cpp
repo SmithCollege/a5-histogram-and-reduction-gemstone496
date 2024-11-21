@@ -4,8 +4,8 @@
 #include <iostream>
 #include <math.h>
 
-#define SIZE 64
-#define RUNS 1
+#define SIZE 100000000
+#define RUNS 100
 
 // functions defined to pass into reduction
 int sum(int a, int b) {

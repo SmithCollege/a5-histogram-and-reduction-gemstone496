@@ -34,13 +34,13 @@ __global__ void reduce(int *in, int size, char op, int *out){
     
     gindex*2 +1 != size ? partialOp[t] = eval(in[gindex], in[size -gindex -1], op) : partialOp[t] = in[gindex]; // handle odds
     
-    for ( unsigned int lvl = 2; // how many levels in are we?
-	  lvl <= blockDim.x;
-	  lvl += 1 ) {
+    for ( int cap = size; // how many items left?
+	  cap > 1;
+	  cap = (cap+1)/2 ) {
 
       __syncthreads();
-      if ( t*lvl <= size ) { // see isn't this so much easier?
-	partialOp[t] = eval(partialOp[t], partialOp[size -t -1], op);
+      if ( t*2 +1 < cap ) { // see isn't this so much easier?
+	partialOp[t] = eval(partialOp[t], partialOp[cap -t -1], op);
       }
       
     }

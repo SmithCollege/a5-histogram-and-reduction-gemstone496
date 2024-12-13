@@ -4,9 +4,9 @@
 #include <iostream>
 #include <math.h>
 
-#define SIZE 1000000
+#define SIZE 10000000
 #define BLOCK_SIZE 1024
-#define RUNS 5
+#define RUNS 100
 
 // evaluate!! for function flexibility
 __host__ __device__ int eval(int a, int b, char op){
@@ -16,30 +16,33 @@ __host__ __device__ int eval(int a, int b, char op){
     case 'p': // product
       return a*b;
     case 'l': // low
-      return min(a, b);
+      return a < b ? a : b;
     case 'h': // high
-      return max(a, b);
+      return a < b ? b : a;
   }
 
-  return 0; // just throwing this in in case, who knows /shrug
+  return 0; // just throwing this in case, who knows /shrug
 }
 
 __global__ void reduce(int *in, unsigned int size, char op, int *out){
   __shared__ int partialOp[BLOCK_SIZE];
-  int t = threadIdx.x, dim = blockDim.x; // index for shared mem and length of blocks
-  unsigned int gindex = t + blockIdx.x*dim; // index for in
-
+  int t = threadIdx.x; // index for shared mem
+  unsigned int gindex = t + blockIdx.x*blockDim.x; // index for in
+  
   // load 2 values from global mem, and prereduce once. same # of polls from global mem, but saves shared mem by factor of 2.
   if (gindex*2 < size) { // never give me odd sizes T-T
-    
-    gindex*2 +1 != size ? partialOp[t] = eval(in[gindex*2], in[gindex*2 +1], op) : partialOp[t] = in[gindex*2]; // handle odd sizes
 
-    for ( unsigned int stride = 1, remaining = (size+1) >> 1;
+    unsigned int remaining = (size -(blockIdx.x*blockDim.x) +1) >> 1;
+    unsigned int dim = blockDim.x < remaining ? blockDim.x : remaining; // if near size 
+    
+    partialOp[t] = gindex*2 +1 != size ? eval(in[gindex*2], in[gindex*2 +1], op) : in[gindex*2]; // handle odd sizes
+
+    for ( unsigned int stride = 1;
 	  stride < dim;
-	  stride <<= 2 ) {
+	  stride <<= 1 ) {
 
       __syncthreads();
-      if ( t % (stride*2) == 0 && t+stride < remaining) {
+      if ( t % (stride*2) == 0 && t+stride < dim) {
 	partialOp[t] = eval(partialOp[t], partialOp[t +stride], op);
       }
       
@@ -69,7 +72,7 @@ int main() {
     char op = 's';
 
     int *d_in, *out, *d_out;
-    out = (int*) malloc( ceil(cachedSize/(2.*BLOCK_SIZE)) *sizeof(int) ); // meh    
+    out = (int*) malloc( ceil( cachedSize/(2.*BLOCK_SIZE) ) *sizeof(int) ); // meh    
     cudaMalloc(&d_in, SIZE*sizeof(int));
     cudaMemcpy(d_in, in, SIZE*sizeof(int), cudaMemcpyHostToDevice);
 
@@ -81,7 +84,7 @@ int main() {
 
       reduce<<<numBlocks, BLOCK_SIZE>>>(d_in, cachedSize, op, d_out); // calculate with sum
       cudaDeviceSynchronize(); // patience, little ones
-      
+
       cudaFree(d_in); d_in = d_out; // free in and set it to the output
       cachedSize = numBlocks;
     }
@@ -91,10 +94,6 @@ int main() {
     const std::chrono::duration<double> elapsed{end - start};
     std::cout << "," << elapsed.count();
 
-    int exp = SIZE; // adjust based on appropriate function...
-    cudaMemcpy(out, d_in, sizeof(int), cudaMemcpyDeviceToHost); // just the first one :)
-    if (out[0] != exp) { std::cerr << "\nout " << out[0] << "    exp " << exp; }
-    
     // free mem
     free(out);
     cudaFree(d_in); // no need to free d_in because it is freed at the end of the loop
